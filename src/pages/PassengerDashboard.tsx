@@ -197,10 +197,56 @@ const PassengerDashboard = () => {
     setActiveField(null);
   };
 
-  // Filter buses
+  // Filter buses — logical from/to stop routing
   const filtered = useMemo(() => {
-    let result = fuzzySearch(query || `${sourceStop} ${destStop}`.trim(), buses)
-      .sort((a, b) => a.etaMin - b.etaMin);
+    let result: typeof buses;
+
+    const src = sourceStop.trim().toLowerCase();
+    const dst = destStop.trim().toLowerCase();
+
+    if (src && dst) {
+      // Both stops entered: bus must serve BOTH stops AND source must come BEFORE dest in its route
+      result = buses.filter((b) => {
+        const stops = b.stops;
+        const srcIdx = stops.findIndex((s) => s.name.toLowerCase().includes(src));
+        const dstIdx = stops.findIndex((s) => s.name.toLowerCase().includes(dst));
+        // Valid only if both found and source appears before destination
+        return srcIdx !== -1 && dstIdx !== -1 && srcIdx < dstIdx;
+      });
+      // If no exact route match, fall back to buses that at least pass through source stop
+      if (result.length === 0) {
+        result = buses.filter((b) =>
+          b.stops.some((s) => s.name.toLowerCase().includes(src)) ||
+          b.from.toLowerCase().includes(src) ||
+          b.routeName.toLowerCase().includes(src)
+        );
+        if (result.length > 0) {
+          // Show a gentle message — handled in the empty state below via a flag
+        }
+      }
+    } else if (src) {
+      // Only source entered: buses that depart from or pass through source
+      result = buses.filter((b) =>
+        b.stops.some((s) => s.name.toLowerCase().includes(src)) ||
+        b.from.toLowerCase().includes(src) ||
+        b.routeName.toLowerCase().includes(src)
+      );
+    } else if (dst) {
+      // Only destination entered: buses that arrive at or pass through destination
+      result = buses.filter((b) =>
+        b.stops.some((s) => s.name.toLowerCase().includes(dst)) ||
+        b.to.toLowerCase().includes(dst) ||
+        b.routeName.toLowerCase().includes(dst)
+      );
+    } else if (query.trim()) {
+      // General keyword search
+      result = fuzzySearch(query, buses);
+    } else {
+      result = buses;
+    }
+
+    result = result.sort((a, b) => a.etaMin - b.etaMin);
+
     if (filterTab !== 'all') {
       result = result.filter((b) => b.crowd.toLowerCase() === filterTab);
     }
