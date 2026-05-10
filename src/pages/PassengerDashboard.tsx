@@ -79,6 +79,10 @@ const PassengerDashboard = () => {
   const [showNextStopAlert, setShowNextStopAlert] = useState(false);
   const [nextStopName, setNextStopName] = useState('');
   const [showSOSPanel, setShowSOSPanel] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activePage, setActivePage] = useState<'home'|'live'|'schedule'|'favorites'|'alerts'|'help'>('home');
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // ── Bus data: real socket first, mock fallback ─────────────────────────
