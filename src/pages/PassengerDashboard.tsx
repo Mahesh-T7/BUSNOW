@@ -155,14 +155,6 @@ const PassengerDashboard = () => {
     return () => clearInterval(id);
   }, []);
 
-  // Auto-pick nearest on mount
-  useEffect(() => {
-    if (!activeBusId && buses.length) {
-      const nearest = [...buses].sort((a, b) => a.etaMin - b.etaMin)[0];
-      setActiveBusId(nearest.id);
-    }
-  }, [buses, activeBusId, setActiveBusId]);
-
   // Next stop alert simulation
   useEffect(() => {
     const alertTimer = setInterval(() => {
@@ -269,6 +261,16 @@ const PassengerDashboard = () => {
   }, [buses, query, sourceStop, destStop, filterTab]);
 
   const nearest = filtered[0];
+
+  // Auto-pick nearest on search/mount
+  useEffect(() => {
+    if (filtered.length > 0) {
+      const nearestBus = [...filtered].sort((a, b) => a.etaMin - b.etaMin)[0];
+      if (nearestBus.id !== activeBusId) {
+        setActiveBusId(nearestBus.id);
+      }
+    }
+  }, [filtered, activeBusId, setActiveBusId]);
 
   const handleLogout = () => {
     clearAuth();
@@ -496,7 +498,7 @@ const PassengerDashboard = () => {
 
       {/* ── MAP ───────────────────────────────────────────────────────────── */}
       <TransitMapPlus
-        buses={buses}
+        buses={filtered}
         activeBusId={activeBusId}
         onSelectBus={(id) => { setActiveBusId(id); }}
         className="absolute inset-0 z-0"
