@@ -11,7 +11,7 @@ import { crowdBg } from '@/lib/mockData';
 /* ─── Custom Icons ──────────────────────────────────────────────────── */
 const makeBusIcon = (route: string, active: boolean) =>
   L.divIcon({
-    className: '',
+    className: 'bus-marker-wrapper',
     html: `<div class="bus-marker${active ? ' active' : ''}"><span>${route}</span></div>`,
     iconSize: [38, 38],
     iconAnchor: [19, 38],

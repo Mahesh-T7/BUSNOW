@@ -263,6 +263,9 @@
 }
 
 /* ── Animated Bus Marker ──────────────────────────────────────────────── */
+.bus-marker-wrapper {
+  transition: transform 3s linear !important;
+}
 .bus-marker {
   background: var(--gradient-brand);
   width: 38px; height: 38px;
@@ -273,7 +276,7 @@
     0 4px 16px hsla(16,100%,60%,0.55),
     0 0 0 3px hsla(0,0%,100%,0.2);
   border: 2px solid white;
-  transition: transform 3s linear, box-shadow 0.3s;
+  transition: transform 0.4s ease, box-shadow 0.3s;
 }
 .bus-marker > * { transform: rotate(45deg); color: white; font-weight: 700; font-size: 13px; }
 .bus-marker.active {
