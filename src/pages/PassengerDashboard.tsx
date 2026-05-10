@@ -67,6 +67,9 @@ const PassengerDashboard = () => {
     theme,
   } = useAppStore();
 
+  // Search state
+  const [query, setQuery] = useState('');
+
   // ── Bus data: real socket first, mock fallback ─────────────────────────
   const mockBusesRef = useRef<BusPlus[]>(generateBusesPlus());
   const [liveBuses, setLiveBuses] = useState<Record<string, BusPlus>>({}); // keyed by sessionId
@@ -220,9 +223,6 @@ const PassengerDashboard = () => {
           b.from.toLowerCase().includes(src) ||
           b.routeName.toLowerCase().includes(src)
         );
-        if (result.length > 0) {
-          // Show a gentle message — handled in the empty state below via a flag
-        }
       }
     } else if (src) {
       // Only source entered: buses that depart from or pass through source
