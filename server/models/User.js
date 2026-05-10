@@ -29,12 +29,15 @@ const UserSchema = new mongoose.Schema(
       default: "passenger",
     },
     // Driver-specific fields
-    driverId: { type: String, unique: true, sparse: true },
-    busId: { type: String, default: null },
+    driverId:      { type: String, unique: true, sparse: true },
+    busId:         { type: String, default: null },
     assignedRoute: { type: String, default: null },
     licenseNumber: { type: String, default: null },
-    isActive: { type: Boolean, default: true },
-    lastSeen: { type: Date, default: Date.now },
+    phoneNumber:   { type: String, default: null },
+    dutyTimings:   { type: String, default: null },   // e.g. "06:00 AM - 02:00 PM"
+    weeklyOffDay:  { type: String, default: null },   // e.g. "Sunday"
+    isActive:      { type: Boolean, default: true },
+    lastSeen:      { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

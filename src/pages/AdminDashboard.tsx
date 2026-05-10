@@ -25,6 +25,7 @@ import {
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { generateBusesPlus, tickBusesPlus, clearAuth, ROUTES_DATA } from '@/lib/mockData';
+import { api } from '@/lib/api';
 import type { BusPlus } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/utils';
@@ -407,59 +408,63 @@ const AdminDashboard = () => {
 
 const BusesView = ({ buses, setBuses }: { buses: BusPlus[], setBuses: React.Dispatch<React.SetStateAction<BusPlus[]>> }) => {
   const [open, setOpen] = useState(false);
+  const [dbBuses, setDbBuses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    id: `BUS-${Math.floor(1000 + Math.random() * 9000)}`,
-    routeId: '',
-    driver: '',
+    busNumber: `BUS-${Math.floor(1000 + Math.random() * 9000)}`,
+    routeNumber: '',
+    routeName: '',
+    from: '',
+    to: '',
     fare: '20',
+    totalSeats: '50',
   });
 
-  const handleAddBus = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.routeId || !formData.driver) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-    
-    const route = ROUTES_DATA.find(r => r.id === formData.routeId);
-    
-    const newBus: BusPlus = {
-      id: formData.id || `BUS-${Math.floor(1000 + Math.random() * 9000)}`,
-      route: route ? route.number : 'New',
-      routeName: route ? route.name : 'Custom Route',
-      from: route ? route.from : 'Start',
-      to: route ? route.to : 'End',
-      lat: 21.1458 + (Math.random() - 0.5) * 0.1,
-      lng: 79.0882 + (Math.random() - 0.5) * 0.1,
-      speed: 0,
-      heading: 0,
-      etaMin: 15,
-      distanceKm: 5,
-      crowd: 'Low',
-      driver: formData.driver,
-      totalSeats: 40,
-      occupiedSeats: 0,
-      reservedSeats: 0,
-      womenSeats: 10,
-      seniorSeats: 5,
-      stops: route ? route.stops : [],
-      fare: parseInt(formData.fare) || 20,
-      isLive: true,
-    };
-    setBuses(prev => [newBus, ...prev]);
-    toast.success(`Bus ${newBus.id} added successfully`);
-    setOpen(false);
-    setFormData({
-      id: `BUS-${Math.floor(1000 + Math.random() * 9000)}`,
-      routeId: '',
-      driver: '',
-      fare: '20',
-    });
+  useEffect(() => { fetchDbBuses(); }, []);
+
+  const fetchDbBuses = async () => {
+    try {
+      const data = await api.getAdminBuses();
+      setDbBuses(data.buses || []);
+    } catch { /* use mock fallback shown via buses prop */ }
   };
 
-  const handleRemoveBus = (id: string) => {
-    setBuses(prev => prev.filter(b => b.id !== id));
-    toast.success(`Bus ${id} removed`);
+  const handleAddBus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.busNumber || !formData.routeName) {
+      toast.error('Bus Number and Route Name are required'); return;
+    }
+    setLoading(true);
+    try {
+      const route = ROUTES_DATA.find(r => r.number === formData.routeNumber);
+      await api.createAdminBus({
+        busNumber: formData.busNumber,
+        routeNumber: formData.routeNumber,
+        routeName: formData.routeName,
+        from: formData.from || route?.from || 'Origin',
+        to: formData.to || route?.to || 'Destination',
+        fare: parseInt(formData.fare) || 20,
+        totalSeats: parseInt(formData.totalSeats) || 50,
+        stops: route?.stops || [],
+      });
+      toast.success(`Bus ${formData.busNumber} saved to database!`);
+      setOpen(false);
+      setFormData({ busNumber: `BUS-${Math.floor(1000 + Math.random() * 9000)}`, routeNumber: '', routeName: '', from: '', to: '', fare: '20', totalSeats: '50' });
+      fetchDbBuses();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add bus');
+    } finally { setLoading(false); }
+  };
+
+  const handleRemoveBus = async (id: string, busNumber: string) => {
+    if (!confirm(`Delete ${busNumber} from the database?`)) return;
+    try {
+      await api.deleteAdminBus(id);
+      toast.success(`Bus ${busNumber} deleted`);
+      fetchDbBuses();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    }
   };
 
   return (
@@ -616,105 +621,66 @@ const DriversView = () => {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '', driverId: '', phoneNumber: '', email: '',
     assignedBus: '', assignedRoute: '', licenseNumber: '',
     dutyTimings: '', weeklyOffDay: ''
   });
 
-  useEffect(() => {
-    fetchDrivers();
-  }, []);
+  useEffect(() => { fetchDrivers(); }, []);
 
   const fetchDrivers = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/drivers');
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) setDrivers(data);
-      else setDrivers(DRIVERS_LIST); // fallback
-    } catch (err) {
+      const data = await api.getAdminDrivers();
+      setDrivers(data.drivers?.length > 0 ? data.drivers : DRIVERS_LIST);
+    } catch {
       setDrivers(DRIVERS_LIST);
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.email) {
-      toast.error('Required fields missing (Name and Email)'); return;
-    }
-    const url = editingId ? `http://localhost:5000/api/drivers/${editingId}` : 'http://localhost:5000/api/drivers';
-    const method = editingId ? 'PUT' : 'POST';
+    if (!formData.name || !formData.email) { toast.error('Name and Email are required'); return; }
+    setLoading(true);
     try {
-      const reqRes = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const data = await reqRes.json();
-      
-      if (!reqRes.ok) throw new Error(data.message || 'Server returned an error');
-      
-      toast.success(editingId ? 'Driver updated' : 'Driver added');
-      setOpen(false);
-      
-      if (!editingId && data.generatedPassword) {
-        toast.success(`Credentials Auto-Generated!`, {
-          duration: 15000,
-          description: `Driver ID: ${data.driverId}\nPassword: ${data.generatedPassword}`,
-          action: {
-            label: 'Copy',
-            onClick: () => {
-              navigator.clipboard.writeText(`Driver Login ID: ${data.driverId}\nPassword: ${data.generatedPassword}`);
-              toast.success('Copied to clipboard');
-            }
-          }
-        });
-      }
-
-      fetchDrivers();
-    } catch (e) {
-      // local fallback
-      const generatedPassword = Math.random().toString(36).slice(-8);
-      const uniqueId = formData.driverId || 'DRV-' + Math.floor(1000 + Math.random() * 9000);
-      const newDriver = { 
-        ...formData, 
-        driverId: uniqueId, 
-        generatedPassword: editingId ? undefined : generatedPassword, 
-        id: editingId || Date.now().toString(), 
-        status: 'Offline', 
-        trips: 0, 
-        rating: 4.5 
-      };
-
       if (editingId) {
-        setDrivers(drivers.map(d => d.id === editingId || d.driverId === editingId ? { ...d, ...formData } : d));
-        toast.success('Driver updated (Local)');
+        await api.updateAdminDriver(editingId, formData);
+        toast.success('Driver updated');
       } else {
-        setDrivers([newDriver, ...drivers]);
-        toast.success(`Credentials Auto-Generated!`, {
-          duration: 15000,
-          description: `Driver ID: ${uniqueId}\nPassword: ${generatedPassword}`,
-          action: {
-            label: 'Copy',
-            onClick: () => {
-              navigator.clipboard.writeText(`Driver Login ID: ${uniqueId}\nPassword: ${generatedPassword}`);
-              toast.success('Copied to clipboard');
+        const data = await api.createAdminDriver(formData);
+        toast.success('Driver created & saved to database!');
+        if (data.generatedPassword) {
+          toast.success('Auto-Generated Credentials', {
+            duration: 20000,
+            description: `Email: ${formData.email}\nDriver ID: ${data.driverId}\nPassword: ${data.generatedPassword}`,
+            action: {
+              label: 'Copy',
+              onClick: () => {
+                navigator.clipboard.writeText(`Email: ${formData.email}\nDriver ID: ${data.driverId}\nPassword: ${data.generatedPassword}`);
+                toast.success('Copied!');
+              }
             }
-          }
-        });
+          });
+        }
       }
       setOpen(false);
+      fetchDrivers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save driver');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm('Remove this driver? Their account will be deleted from the database.')) return;
     try {
-      await fetch(`http://localhost:5000/api/drivers/${id}`, { method: 'DELETE' });
-      toast.success('Driver removed');
+      await api.deleteAdminDriver(id);
+      toast.success('Driver removed from database');
       fetchDrivers();
-    } catch (e) {
-      setDrivers(drivers.filter(d => d._id !== id && d.driverId !== id));
-      toast.success('Driver removed (Local)');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
     }
   };
 
@@ -933,51 +899,60 @@ const RoutesView = ({ routes, setRoutes }: { routes: any[], setRoutes: any }) =>
     setStops(stops.filter((_, i) => i !== index));
   };
 
-  const handleAddRoute = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.number || !formData.name || !formData.from || !formData.to) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
+  const [loading, setLoading] = useState(false);
 
-    const intermediateStops = stops
-      .filter(s => s.trim() !== '')
-      .map((s, i) => ({
-        id: `s_${Date.now()}_${i}`,
-        name: s.trim(),
-        lat: 21.1458 + (Math.random() - 0.5) * 0.1,
-        lng: 79.0882 + (Math.random() - 0.5) * 0.1,
-      }));
+  useEffect(() => { fetchDbRoutes(); }, []);
 
-    const allStops = [
-      { id: `s_${Date.now()}_start`, name: formData.from, lat: 21.1458, lng: 79.0882 },
-      ...intermediateStops,
-      { id: `s_${Date.now()}_end`, name: formData.to, lat: 21.1558, lng: 79.0982 },
-    ];
-
-    const newRoute = {
-      id: `r${formData.number}${Date.now()}`,
-      number: formData.number,
-      name: formData.name,
-      from: formData.from,
-      to: formData.to,
-      stops: allStops,
-      distanceKm: parseFloat(formData.distanceKm) || 10,
-      durationMin: (parseFloat(formData.distanceKm) || 10) * 2,
-      fare: parseInt(formData.fare) || 20,
-      peakFare: (parseInt(formData.fare) || 20) + 10,
-    };
-
-    setRoutes((prev: any) => [newRoute, ...prev]);
-    toast.success(`Route ${newRoute.number} added successfully`);
-    setOpen(false);
-    setFormData({ number: '', name: '', from: '', to: '', fare: '', distanceKm: '' });
-    setStops(['']);
+  const fetchDbRoutes = async () => {
+    try {
+      const data = await api.getAdminRoutes();
+      if (data.routes?.length > 0) setRoutes(data.routes);
+    } catch { /* keep mock ROUTES_DATA as fallback */ }
   };
 
-  const handleRemoveRoute = (id: string) => {
-    setRoutes((prev: any) => prev.filter((r: any) => r.id !== id));
-    toast.success('Route removed');
+  const handleAddRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.number || !formData.name || !formData.from || !formData.to) {
+      toast.error('Please fill in all required fields'); return;
+    }
+    setLoading(true);
+    try {
+      const allStops = [
+        { name: formData.from, lat: 16.2045, lng: 77.3482 },
+        ...stops.filter(s => s.trim()).map(s => ({ name: s.trim(), lat: 16.2045 + Math.random() * 0.05, lng: 77.3482 + Math.random() * 0.05 })),
+        { name: formData.to, lat: 16.2045 + 0.05, lng: 77.3482 + 0.05 },
+      ];
+      const dist = parseFloat(formData.distanceKm) || 10;
+      await api.createAdminRoute({
+        number: formData.number,
+        name: formData.name,
+        from: formData.from,
+        to: formData.to,
+        stops: allStops,
+        distanceKm: dist,
+        durationMin: Math.round(dist * 2),
+        fare: parseInt(formData.fare) || 20,
+        peakFare: (parseInt(formData.fare) || 20) + 10,
+      });
+      toast.success(`Route ${formData.number} saved to database!`);
+      setOpen(false);
+      setFormData({ number: '', name: '', from: '', to: '', fare: '', distanceKm: '' });
+      setStops(['']);
+      fetchDbRoutes();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add route');
+    } finally { setLoading(false); }
+  };
+
+  const handleRemoveRoute = async (id: string) => {
+    if (!confirm('Delete this route from the database?')) return;
+    try {
+      await api.deleteAdminRoute(id);
+      toast.success('Route deleted');
+      fetchDbRoutes();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete');
+    }
   };
 
   return (
@@ -1142,20 +1117,15 @@ const AdminSchedulesView = () => {
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/schedules');
-      const data = await res.json();
-      if (Array.isArray(data)) setSchedules(data);
+      const data = await api.getAdminSchedules();
+      if (data.schedules) setSchedules(data.schedules);
     } catch (e) { console.error(e); }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch('http://localhost:5000/api/schedules', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      await api.createAdminSchedule(formData);
       toast.success('Schedule created');
       setOpen(false);
       fetchSchedules();
@@ -1168,7 +1138,7 @@ const AdminSchedulesView = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`http://localhost:5000/api/schedules/${id}`, { method: 'DELETE' });
+      await api.deleteAdminSchedule(id);
       toast.success('Schedule deleted');
       fetchSchedules();
     } catch (e) {
@@ -1279,15 +1249,11 @@ const AdminUsersView = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("vt_token");
-      const res = await fetch('http://localhost:5000/api/admin/users', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
+      const data = await api.getAdminUsers();
       if (data.success && Array.isArray(data.users)) {
         setUsers(data.users);
       } else {
-        throw new Error(data.message || 'Failed to fetch users');
+        throw new Error((data as any).message || 'Failed to fetch users');
       }
     } catch (e) {
       // Fallback
@@ -1305,18 +1271,9 @@ const AdminUsersView = () => {
   const handleDeleteUser = async (id: string, email: string) => {
     if (!window.confirm(`Are you sure you want to delete ${email}?`)) return;
     try {
-      const token = localStorage.getItem("vt_token");
-      const res = await fetch(`http://localhost:5000/api/admin/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toast.success('User deleted successfully');
-        fetchUsers();
-      } else {
-        throw new Error(data.message || 'Failed to delete user');
-      }
+      await api.deleteAdminUser(id);
+      toast.success('User deleted successfully');
+      fetchUsers();
     } catch (e) {
       toast.error('Deleted (Local)');
       setUsers(users.filter(u => u._id !== id));

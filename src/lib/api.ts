@@ -154,22 +154,122 @@ export const api = {
 
   // ── Admin ────────────────────────────────────────────────────────────────
   async getAdminStats() {
-    return request<{ success: boolean; stats: AdminStats }>("/api/admin/stats");
-  },
-
-  async getAdminDrivers() {
-    return request<{ success: boolean; drivers: AdminDriver[] }>("/api/admin/drivers");
+    return request<{ success: boolean; stats: AdminStats }>('/api/admin/stats');
   },
 
   async getAdminUsers(params?: { role?: string; search?: string; page?: number }) {
     const q = new URLSearchParams(params as Record<string, string>).toString();
     return request<{ success: boolean; users: AuthUser[]; pagination: Pagination }>(
-      `/api/admin/users${q ? `?${q}` : ""}`
+      `/api/admin/users${q ? `?${q}` : ''}`
     );
   },
 
+  async updateAdminUser(id: string, data: Partial<AuthUser>) {
+    return request<{ success: boolean; user: AuthUser }>(`/api/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminUser(id: string) {
+    return request(`/api/admin/users/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Admin: Buses ─────────────────────────────────────────────────────────
+  async getAdminBuses() {
+    return request<{ success: boolean; buses: any[] }>('/api/admin/buses');
+  },
+
+  async createAdminBus(data: any) {
+    return request<{ success: boolean; bus: any }>('/api/admin/buses', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminBus(id: string, data: any) {
+    return request<{ success: boolean; bus: any }>(`/api/admin/buses/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminBus(id: string) {
+    return request(`/api/admin/buses/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Admin: Routes ────────────────────────────────────────────────────────
+  async getAdminRoutes() {
+    return request<{ success: boolean; routes: any[] }>('/api/admin/routes');
+  },
+
+  async createAdminRoute(data: any) {
+    return request<{ success: boolean; route: any }>('/api/admin/routes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminRoute(id: string, data: any) {
+    return request<{ success: boolean; route: any }>(`/api/admin/routes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminRoute(id: string) {
+    return request(`/api/admin/routes/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Admin: Schedules ─────────────────────────────────────────────────────
+  async getAdminSchedules() {
+    return request<{ success: boolean; schedules: any[] }>('/api/admin/schedules');
+  },
+
+  async createAdminSchedule(data: any) {
+    return request<{ success: boolean; schedule: any }>('/api/admin/schedules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminSchedule(id: string, data: any) {
+    return request<{ success: boolean; schedule: any }>(`/api/admin/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminSchedule(id: string) {
+    return request(`/api/admin/schedules/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Admin: Drivers ────────────────────────────────────────────────────────
+  async getAdminDrivers(search?: string) {
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    return request<{ success: boolean; drivers: any[] }>(`/api/admin/drivers${q}`);
+  },
+
+  async createAdminDriver(data: any) {
+    return request<{ success: boolean; driver: any; driverId: string; generatedPassword: string }>(
+      '/api/admin/drivers',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  },
+
+  async updateAdminDriver(id: string, data: any) {
+    return request<{ success: boolean; driver: any }>(`/api/admin/drivers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminDriver(id: string) {
+    return request(`/api/admin/drivers/${id}`, { method: 'DELETE' });
+  },
+
   async seedDemo() {
-    return request("/api/admin/seed", { method: "POST" });
+    return request('/api/admin/seed', { method: 'POST' });
   },
 };
 
