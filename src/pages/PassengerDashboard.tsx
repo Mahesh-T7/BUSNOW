@@ -67,8 +67,19 @@ const PassengerDashboard = () => {
     theme,
   } = useAppStore();
 
-  // Search state
+  // Search & filter state
   const [query, setQuery] = useState('');
+  const [sourceStop, setSourceStop] = useState('');
+  const [destStop, setDestStop] = useState('');
+  const [filterTab, setFilterTab] = useState<FilterTab>('all');
+  const [stopSuggestions, setStopSuggestions] = useState<string[]>([]);
+  const [activeField, setActiveField] = useState<'source' | 'dest' | null>(null);
+
+  // UI state
+  const [showNextStopAlert, setShowNextStopAlert] = useState(false);
+  const [nextStopName, setNextStopName] = useState('');
+  const [showSOSPanel, setShowSOSPanel] = useState(false);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // ── Bus data: real socket first, mock fallback ─────────────────────────
   const mockBusesRef = useRef<BusPlus[]>(generateBusesPlus());
