@@ -3,9 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Bell, ChevronUp, ChevronDown, LogOut, Search, User as UserIcon,
-  Sparkles, MapPin, Volume2, VolumeX, Filter, X, SlidersHorizontal,
-  Navigation, Bus, Clock, AlertTriangle, Menu, Home, Calendar, Heart,
+  Bell, ChevronDown, LogOut, Search, User as UserIcon,
+  Sparkles, MapPin, Volume2, VolumeX, X, SlidersHorizontal,
+  Navigation, Bus, AlertTriangle, Menu, Home, Calendar, Heart,
   Globe, HelpCircle,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -27,8 +27,35 @@ import type { BusPlus } from '@/store/useAppStore';
 import { useAppStore } from '@/store/useAppStore';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { connectSocket, disconnectSocket } from '@/lib/api';
 
 type FilterTab = 'all' | 'low' | 'medium' | 'high';
+
+/** Convert a raw socket session payload → BusPlus shape */
+function socketSessionToBus(s: any): BusPlus {
+  return {
+    id: s.busId ?? s.sessionId,
+    sessionId: s.sessionId,
+    route: s.route ?? '',
+    routeName: s.routeName ?? '',
+    from: '', to: '',
+    lat: s.lat ?? 16.2045,
+    lng: s.lng ?? 77.3482,
+    speed: s.speed ?? 0,
+    heading: s.heading ?? 0,
+    etaMin: 1,
+    distanceKm: 0,
+    crowd: (s.crowd ?? s.crowdLevel ?? 'Medium') as any,
+    driver: s.driverName ?? s.driver ?? 'Driver',
+    totalSeats: 50,
+    occupiedSeats: 25,
+    reservedSeats: 4, womenSeats: 6, seniorSeats: 4,
+    stops: [],
+    fare: 20,
+    isLive: true,
+    nextStop: undefined,
+  };
+}
 
 const PassengerDashboard = () => {
   const nav = useNavigate();
@@ -40,28 +67,74 @@ const PassengerDashboard = () => {
     theme,
   } = useAppStore();
 
-  const [buses, setBuses] = useState<BusPlus[]>(() => generateBusesPlus());
-  const [query, setQuery] = useState('');
-  const [sourceStop, setSourceStop] = useState('');
-  const [destStop, setDestStop] = useState('');
-  const [online, setOnline] = useState(true);
-  const [activePage, setActivePage] = useState<'home' | 'live' | 'schedule' | 'favorites' | 'alerts' | 'help'>('home');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [filterTab, setFilterTab] = useState<FilterTab>('all');
-  const [showSearch, setShowSearch] = useState(false);
-  const [stopSuggestions, setStopSuggestions] = useState<string[]>([]);
-  const [activeField, setActiveField] = useState<'source' | 'dest' | null>(null);
-  const [showNextStopAlert, setShowNextStopAlert] = useState(false);
-  const [nextStopName, setNextStopName] = useState('');
-  const interval = useRef<number | null>(null);
-  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // ── Bus data: real socket first, mock fallback ─────────────────────────
+  const mockBusesRef = useRef<BusPlus[]>(generateBusesPlus());
+  const [liveBuses, setLiveBuses] = useState<Record<string, BusPlus>>({}); // keyed by sessionId
+  const [buses, setBuses] = useState<BusPlus[]>(() => mockBusesRef.current);
+  const isLiveRef = useRef(false);
 
-  // Tick buses every 3s
+  // Connect to socket and listen for real bus events
   useEffect(() => {
-    interval.current = window.setInterval(() => {
-      setBuses((prev) => tickBusesPlus(prev).sort((a, b) => a.etaMin - b.etaMin));
+    const socket = connectSocket();
+
+    // Server sends all currently active buses on connect
+    socket.on('bus:snapshot', (sessions: any[]) => {
+      if (!sessions.length) return;
+      isLiveRef.current = true;
+      const map: Record<string, BusPlus> = {};
+      sessions.forEach((s) => {
+        map[s.sessionId] = socketSessionToBus(s);
+      });
+      setLiveBuses(map);
+    });
+
+    // Incremental location update from a driver
+    socket.on('bus:update', (payload: any) => {
+      isLiveRef.current = true;
+      setLiveBuses((prev) => ({
+        ...prev,
+        [payload.sessionId]: socketSessionToBus(payload),
+      }));
+    });
+
+    // A driver went offline
+    socket.on('bus:offline', ({ sessionId }: { sessionId: string }) => {
+      setLiveBuses((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        if (!Object.keys(next).length) isLiveRef.current = false;
+        return next;
+      });
+    });
+
+    return () => {
+      socket.off('bus:snapshot');
+      socket.off('bus:update');
+      socket.off('bus:offline');
+      disconnectSocket();
+    };
+  }, []);
+
+  // Merge live + mock: real buses take priority, mock fill the rest
+  useEffect(() => {
+    const liveList = Object.values(liveBuses);
+    if (liveList.length > 0) {
+      // Show real buses at top + some mock buses for visual richness
+      const mockFill = mockBusesRef.current.slice(0, Math.max(0, 5 - liveList.length));
+      setBuses([...liveList, ...mockFill]);
+    } else {
+      // No live buses — use simulated mock data
+      setBuses(mockBusesRef.current);
+    }
+  }, [liveBuses]);
+
+  // Tick mock buses every 3s (keeps map alive even with no real drivers)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      mockBusesRef.current = tickBusesPlus(mockBusesRef.current);
+      setLiveBuses((prev) => ({ ...prev })); // trigger re-merge
     }, 3000);
-    return () => { if (interval.current) clearInterval(interval.current); };
+    return () => clearInterval(id);
   }, []);
 
   // Auto-pick nearest on mount

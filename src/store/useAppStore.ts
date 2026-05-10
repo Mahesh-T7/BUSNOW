@@ -29,6 +29,7 @@ export interface RouteInfo {
 
 export interface BusPlus {
   id: string;
+  sessionId?: string;   // present when bus comes from a real driver socket session
   route: string;
   routeName: string;
   from: string;

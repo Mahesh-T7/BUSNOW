@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +25,7 @@ import { clearAuth, generateBusesPlus } from '@/lib/mockData';
 import { useAppStore } from '@/store/useAppStore';
 import { toast } from 'sonner';
 import type { BusPlus } from '@/store/useAppStore';
+import { getSocket, connectSocket, disconnectSocket } from '@/lib/api';
 
 const ROUTES_LIST = [
   { value: 'r42', label: '42 · Raichur → Sindhanur' },
@@ -39,7 +40,7 @@ const ROUTES_LIST = [
 
 const DriverDashboard = () => {
   const nav = useNavigate();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { theme } = useAppStore();
 
   const [busId, setBusId] = useState('BUS-4201');
@@ -55,38 +56,41 @@ const DriverDashboard = () => {
   const [currentLng, setCurrentLng] = useState(77.3482);
   const [heading, setHeading] = useState(45);
   const [sosActive, setSosActive] = useState(false);
-  const [showSosMenu, setShowSosMenu] = useState(false);
   const [mapBuses, setMapBuses] = useState<BusPlus[]>([]);
   const [activeTab, setActiveTab] = useState<'console' | 'analytics' | 'duty'>('console');
-  const tick = useRef<number | null>(null);
 
+  const watchIdRef = useRef<number | null>(null);
+  const durationRef = useRef<number | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  // Load mock buses as background on map
   useEffect(() => {
-    // Generate mock buses for map
     setMapBuses(generateBusesPlus());
   }, []);
 
+  // Duration counter
   useEffect(() => {
     if (sharing) {
-      tick.current = window.setInterval(() => {
-        const newSpeed = Math.max(0, Math.round(20 + Math.random() * 35));
-        setSpeed(newSpeed);
-        setAccuracy(+(2 + Math.random() * 4).toFixed(1));
-        setDuration((d) => d + 1);
-        setHeading((h) => (h + Math.round((Math.random() - 0.5) * 20) + 360) % 360);
-        setCurrentLat((l) => l + (Math.random() - 0.5) * 0.0005);
-        setCurrentLng((l) => l + (Math.random() - 0.5) * 0.0005);
-        setGpsSignal(Math.round(2 + Math.random() * 2));
-
-        if (Math.random() < 0.02) {
-          setConnected(false);
-          setTimeout(() => setConnected(true), 1500);
-        }
-      }, 1000);
+      durationRef.current = window.setInterval(() => setDuration((d) => d + 1), 1000);
     } else {
-      setSpeed(0); setAccuracy(0); setGpsSignal(4);
+      if (durationRef.current) clearInterval(durationRef.current);
+      setDuration(0);
     }
-    return () => { if (tick.current) clearInterval(tick.current); };
+    return () => { if (durationRef.current) clearInterval(durationRef.current); };
   }, [sharing]);
+
+  // Emit location to socket
+  const emitLocation = useCallback((lat: number, lng: number, spd: number, hdg: number, acc: number) => {
+    const socket = getSocket();
+    if (!socket.connected || !sessionIdRef.current) return;
+    socket.emit('driver:location', {
+      lat, lng,
+      speed: spd,
+      heading: hdg,
+      accuracy: acc,
+      crowdLevel: crowd,
+    });
+  }, [crowd]);
 
   const fmtTime = (s: number) => {
     const m = Math.floor(s / 60); const r = s % 60;
@@ -95,26 +99,86 @@ const DriverDashboard = () => {
 
   const handleLogout = () => { clearAuth(); nav('/login'); };
 
-  const toggle = () => {
-    setSharing((v) => {
-      if (!v) {
-        toast.success('Location sharing started', { description: `${busId} is now live` });
-        setDuration(0);
-      } else {
-        toast.info('Location sharing stopped');
-      }
-      return !v;
+  const startSharing = useCallback(async () => {
+    // 1. Connect socket
+    const socket = connectSocket();
+
+    socket.on('connect', () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+
+    // 2. Start session on server
+    const routeLabel = ROUTES_LIST.find((r) => r.value === selectedRoute)?.label ?? '';
+    socket.emit('driver:start', {
+      busId,
+      route: selectedRoute.replace('r', ''),
+      routeName: routeLabel,
+      crowdLevel: crowd,
+    }, (res: any) => {
+      if (res?.error) { toast.error(res.error); return; }
+      sessionIdRef.current = res?.sessionId ?? null;
     });
+
+    // 3. Watch real GPS
+    if (!navigator.geolocation) {
+      toast.error('GPS not supported on this device');
+      return;
+    }
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, speed: spd, heading: hdg, accuracy: acc } = pos.coords;
+        setCurrentLat(latitude);
+        setCurrentLng(longitude);
+        setSpeed(Math.round((spd ?? 0) * 3.6)); // m/s → km/h
+        setHeading(Math.round(hdg ?? 0));
+        setAccuracy(+(acc ?? 0).toFixed(1));
+        // GPS signal quality (based on accuracy)
+        setGpsSignal(acc < 5 ? 4 : acc < 15 ? 3 : acc < 30 ? 2 : 1);
+        emitLocation(latitude, longitude, Math.round((spd ?? 0) * 3.6), Math.round(hdg ?? 0), acc ?? 0);
+      },
+      (err) => {
+        console.warn('[GPS]', err.message);
+        toast.warning('GPS signal lost, retrying...');
+        setGpsSignal(0);
+      },
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+    );
+
+    setSharing(true);
+    toast.success('Location sharing started', { description: `${busId} is now LIVE` });
+  }, [busId, selectedRoute, crowd, emitLocation]);
+
+  const stopSharing = useCallback(() => {
+    // Stop GPS watch
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    // Tell server to end session
+    const socket = getSocket();
+    if (sessionIdRef.current) {
+      socket.emit('driver:stop', { sessionId: sessionIdRef.current });
+      sessionIdRef.current = null;
+    }
+
+    disconnectSocket();
+    setSharing(false);
+    setSpeed(0); setAccuracy(0); setGpsSignal(4);
+    toast.info('Location sharing stopped');
+  }, []);
+
+  const toggle = () => {
+    if (!sharing) startSharing();
+    else stopSharing();
   };
 
   const handleSOS = (type: string) => {
     setSosActive(true);
-    setShowSosMenu(false);
     toast.error(`🚨 SOS Alert — ${type}`, {
       description: 'Emergency services have been notified',
       duration: 8000,
     });
-    // Speak alert
     if ('speechSynthesis' in window) {
       const utter = new SpeechSynthesisUtterance(`Emergency SOS activated. ${type} reported.`);
       window.speechSynthesis.speak(utter);
@@ -122,7 +186,6 @@ const DriverDashboard = () => {
   };
 
   const routeLabel = ROUTES_LIST.find((r) => r.value === selectedRoute)?.label ?? '';
-
   const gpsColor = gpsSignal >= 4 ? 'text-emerald-400' : gpsSignal >= 2 ? 'text-amber-400' : 'text-red-400';
 
   // Build live map bus for this driver
