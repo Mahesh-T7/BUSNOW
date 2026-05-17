@@ -155,22 +155,30 @@ const PassengerDashboard = () => {
     return () => clearInterval(id);
   }, []);
 
-  // Next stop alert simulation
+  // Next stop alert when bus's nextStop changes
+  const prevNextStopRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const alertTimer = setInterval(() => {
-      if (!nextStopAlertEnabled) return;
-      const activeBus = buses.find((b) => b.id === activeBusId);
-      if (activeBus?.nextStop) {
-        setNextStopName(activeBus.nextStop);
-        setShowNextStopAlert(true);
-        if (!silentMode) {
+    if (!nextStopAlertEnabled || !activeBusId) return;
+    const activeBus = buses.find((b) => b.id === activeBusId);
+    
+    if (activeBus?.nextStop && activeBus.nextStop !== prevNextStopRef.current) {
+      // Trigger voice and popup when the next stop string changes (meaning we just left the previous stop)
+      prevNextStopRef.current = activeBus.nextStop;
+      
+      setNextStopName(activeBus.nextStop);
+      setShowNextStopAlert(true);
+      if (!silentMode) {
+        if (activeBus.nextStop === "Destination Reached") {
+          speakAlert(`Bus has reached its final destination.`);
+        } else {
           speakAlert(`Next stop: ${activeBus.nextStop}`);
         }
-        setTimeout(() => setShowNextStopAlert(false), 5000);
       }
-    }, 25000); // every 25 seconds
-    return () => clearInterval(alertTimer);
-  }, [activeBusId, buses, nextStopAlertEnabled, silentMode]);
+      const timeout = setTimeout(() => setShowNextStopAlert(false), 8000);
+      return () => clearTimeout(timeout);
+    }
+  }, [buses, activeBusId, nextStopAlertEnabled, silentMode]);
 
   const speakAlert = (text: string) => {
     if ('speechSynthesis' in window) {

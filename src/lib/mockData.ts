@@ -95,10 +95,10 @@ function getCrowd(roll: number): CrowdLevel {
 
 export function generateBusesPlus(): BusPlus[] {
   return ROUTES_DATA.map((r, i) => {
-    const angle = (i / ROUTES_DATA.length) * Math.PI * 2;
-    const radius = rand(0.01, 0.04);
-    const lat = USER_LOCATION.lat + Math.cos(angle) * radius;
-    const lng = USER_LOCATION.lng + Math.sin(angle) * radius;
+    const startIdx = Math.floor(Math.random() * Math.max(1, r.stops.length - 1));
+    const startStop = r.stops[startIdx] || { lat: USER_LOCATION.lat, lng: USER_LOCATION.lng };
+    const lat = startStop.lat + rand(-0.001, 0.001);
+    const lng = startStop.lng + rand(-0.001, 0.001);
     const dx = (lat - USER_LOCATION.lat) * 111;
     const dy = (lng - USER_LOCATION.lng) * 111;
     const distanceKm = +Math.sqrt(dx * dx + dy * dy).toFixed(2);
@@ -113,7 +113,7 @@ export function generateBusesPlus(): BusPlus[] {
     const stopsWithEta = r.stops.map((s, si) => ({
       ...s,
       etaMin: Math.max(0, etaMin + si * 4 - (si > 0 ? 2 : 0)),
-      reached: si === 0,
+      reached: si <= startIdx,
     }));
 
     return {
@@ -142,11 +142,50 @@ export function generateBusesPlus(): BusPlus[] {
   });
 }
 
+const waitTimers: Record<string, number> = {};
+
 export function tickBusesPlus(buses: BusPlus[]): BusPlus[] {
   return buses.map((b) => {
-    const drift = 0.0006;
-    const lat = b.lat + (Math.random() - 0.5) * drift;
-    const lng = b.lng + (Math.random() - 0.5) * drift;
+    if (waitTimers[b.id] && waitTimers[b.id] > 0) {
+      waitTimers[b.id]--;
+      // Bus is waiting at the stop, keep coordinates identical
+      return b;
+    }
+
+    const targetStopIndex = b.stops.findIndex(s => !s.reached);
+    const targetStop = b.stops[targetStopIndex];
+    let { lat, lng } = b;
+    let stops = [...b.stops];
+    let nextStop = b.nextStop;
+
+    if (targetStop) {
+      const dx = targetStop.lng - lng;
+      const dy = targetStop.lat - lat;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const step = 0.0025; // 2.5x faster for demo purposes
+
+      if (dist < step) {
+        lat = targetStop.lat;
+        lng = targetStop.lng;
+        stops[targetStopIndex] = { ...targetStop, reached: true };
+        
+        const isFinalStop = targetStopIndex === stops.length - 1;
+        if (isFinalStop) {
+          nextStop = "Destination Reached";
+          waitTimers[b.id] = 999999; // stay at destination forever
+        } else {
+          nextStop = stops[targetStopIndex + 1]?.name;
+          waitTimers[b.id] = 2; // wait 2 ticks (6 seconds) at the stop
+        }
+      } else {
+        lat += (dy / dist) * step;
+        lng += (dx / dist) * step;
+      }
+    } else {
+      nextStop = "Destination Reached";
+      waitTimers[b.id] = 999999;
+    }
+
     const dx = (lat - USER_LOCATION.lat) * 111;
     const dy = (lng - USER_LOCATION.lng) * 111;
     const distanceKm = +Math.sqrt(dx * dx + dy * dy).toFixed(2);
@@ -159,7 +198,7 @@ export function tickBusesPlus(buses: BusPlus[]): BusPlus[] {
     const occupiedSeats = Math.round(
       b.totalSeats * (crowd === 'Low' ? rand(0.1, 0.4) : crowd === 'Medium' ? rand(0.4, 0.7) : crowd === 'High' ? rand(0.7, 0.9) : 1.0)
     );
-    return { ...b, lat, lng, speed, distanceKm, etaMin, crowd, occupiedSeats };
+    return { ...b, lat, lng, stops, nextStop, speed, distanceKm, etaMin, crowd, occupiedSeats };
   });
 }
 
