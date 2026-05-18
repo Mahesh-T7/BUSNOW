@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Lock, ArrowRight, Loader2 } from "lucide-react";
+import { Mail, Lock, ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { AuthLayout } from "@/components/AuthLayout";
 import { RoleSelector } from "@/components/RoleSelector";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,31 @@ import { saveAuth, Role } from "@/lib/mockData";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
+// Fixed admin credentials — seeded at server startup, cannot be changed via UI
+const ADMIN_EMAIL    = "admin@varadtrack.app";
+const ADMIN_PASSWORD = "admin123";
+
 const Login = () => {
   const nav = useNavigate();
   const [role, setRole] = useState<Role>("passenger");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Auto-fill admin credentials when admin tile is clicked
+  const handleRoleChange = (r: Role) => {
+    setRole(r);
+    if (r === "admin") {
+      setEmail(ADMIN_EMAIL);
+      setPassword(ADMIN_PASSWORD);
+    } else {
+      // Clear auto-filled admin creds if switching away
+      if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+        setEmail("");
+        setPassword("");
+      }
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,14 +66,35 @@ const Login = () => {
       <form onSubmit={submit} className="space-y-5">
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">I am a</Label>
-          <RoleSelector value={role} onChange={setRole} />
+          <RoleSelector value={role} onChange={handleRoleChange} />
         </div>
+
+        {/* Admin credential hint — shown only when Admin is selected */}
+        {role === "admin" && (
+          <div className="flex items-start gap-3 px-3 py-3 rounded-xl bg-brand/10 border border-brand/25 text-xs">
+            <ShieldCheck className="h-4 w-4 text-brand shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="font-semibold text-brand">Admin credentials auto-filled</p>
+              <p className="text-muted-foreground">
+                Fixed account · cannot be registered or changed via the UI.
+              </p>
+              <button
+                type="button"
+                className="text-brand underline underline-offset-2 mt-1 hover:text-brand/80"
+                onClick={() => { setEmail(ADMIN_EMAIL); setPassword(ADMIN_PASSWORD); }}
+              >
+                Re-fill credentials
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <Label htmlFor="email">{role === 'driver' ? 'Email or Driver ID' : 'Email'}</Label>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input id="email" type="text" placeholder={role === 'driver' ? 'driver@varadtrack.app or DRV-1234' : 'you@varadtrack.app'}
+            <Input id="email" type="text"
+              placeholder={role === 'driver' ? 'driver@varadtrack.app or DRV-1234' : 'you@varadtrack.app'}
               value={email} onChange={(e) => setEmail(e.target.value)}
               className="pl-10 h-11 bg-white/5 border-white/10 focus-visible:ring-brand" />
           </div>
@@ -75,12 +115,21 @@ const Login = () => {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Sign in <ArrowRight className="ml-2 h-4 w-4" /></>}
         </Button>
 
-        <p className="text-center text-sm text-muted-foreground">
-          New here?{" "}
-          <Link to="/register" className="text-brand hover:text-brand-glow font-medium transition-colors">
-            Create an account
-          </Link>
-        </p>
+        {/* Hide "Create account" when Admin role is selected */}
+        {role !== "admin" && (
+          <p className="text-center text-sm text-muted-foreground">
+            New here?{" "}
+            <Link to="/register" className="text-brand hover:text-brand-glow font-medium transition-colors">
+              Create an account
+            </Link>
+          </p>
+        )}
+
+        {role === "admin" && (
+          <p className="text-center text-xs text-muted-foreground">
+            Admin accounts are pre-configured. Contact your system administrator for access.
+          </p>
+        )}
       </form>
     </AuthLayout>
   );

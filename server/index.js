@@ -171,6 +171,30 @@ async function start() {
     }
   }
 
+  // ── Guarantee admin account always exists (runs on every startup) ──────────
+  try {
+    const User = require('./models/User');
+    const bcrypt = require('bcryptjs');
+    const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@varadtrack.app';
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+    const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Admin User';
+
+    const existing = await User.findOne({ email: ADMIN_EMAIL.toLowerCase() });
+    if (!existing) {
+      // Create fresh (pre-save hook will hash the password)
+      await User.create({ name: ADMIN_NAME, email: ADMIN_EMAIL.toLowerCase(), password: ADMIN_PASSWORD, role: 'admin' });
+      console.log(`🔑 Admin account created: ${ADMIN_EMAIL}`);
+    } else if (existing.role !== 'admin') {
+      // Protect: if somehow email was re-used, force it to admin
+      await User.findByIdAndUpdate(existing._id, { role: 'admin' });
+      console.log(`🔑 Admin role restored for: ${ADMIN_EMAIL}`);
+    } else {
+      console.log(`🔑 Admin account ready: ${ADMIN_EMAIL}`);
+    }
+  } catch (adminErr) {
+    console.warn('⚠️  Could not guarantee admin account:', adminErr.message);
+  }
+
   server.listen(PORT, () => {
     console.log(`\n🚌 VaradTrack Backend  →  http://localhost:${PORT}`);
     console.log(`📡 Socket.io ready`);
