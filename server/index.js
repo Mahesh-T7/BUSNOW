@@ -13,6 +13,7 @@ const busesRoutes = require("./routes/buses");
 const adminRoutes = require("./routes/admin");
 const newDriverRoutes = require("./routes/drivers");
 const scheduleRoutes = require("./routes/schedules");
+const routesRoutes = require("./routes/routes");
 const { socketAuth } = require("./middleware/auth");
 const registerSocketHandlers = require("./socket/handlers");
 
@@ -72,6 +73,7 @@ app.use("/api/buses", busesRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/drivers", newDriverRoutes);
 app.use("/api/schedules", scheduleRoutes);
+app.use("/api/routes", routesRoutes); // public route map lookup
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -110,27 +112,87 @@ async function start() {
       console.log("✅ In-memory MongoDB started (data resets on server restart)");
       console.log("   To persist data, install MongoDB locally or set MONGO_URI in server/.env");
 
-      // Seed demo users automatically in dev/memory mode
-      const User = require("./models/User");
-      const count = await User.countDocuments();
-      if (count === 0) {
+      // Seed demo data automatically in dev/memory mode
+      const User     = require("./models/User");
+      const Bus      = require("./models/Bus");
+      const Route    = require("./models/Route");
+      const Schedule = require("./models/Schedule");
+      const { ROUTES, BUSES, SCHEDULES } = require("./seeders/demoData");
+
+      const userCount = await User.countDocuments();
+      if (userCount === 0) {
+        // ── Users ────────────────────────────────────────────────────────────
         await User.create([
-          { name: "Admin User",   email: "admin@varadtrack.app",     password: "admin123",  role: "admin" },
-          { name: "R. Sharma",    email: "rsharma@varadtrack.app",   password: "driver123", role: "driver",    busId: "BUS-4201", assignedRoute: "42" },
-          { name: "A. Patil",     email: "apatil@varadtrack.app",    password: "driver123", role: "driver",    busId: "BUS-1702", assignedRoute: "17" },
-          { name: "S. Deshmukh", email: "sdeshmukh@varadtrack.app", password: "driver123", role: "driver",    busId: "BUS-0803", assignedRoute: "08" },
+          { name: "Admin User",    email: "admin@varadtrack.app",     password: "admin123",  role: "admin" },
+          { name: "R. Sharma",    email: "rsharma@varadtrack.app",   password: "driver123", role: "driver",    busId: "BUS-4201", assignedRoute: "42", driverId: "DRV-4201" },
+          { name: "A. Patil",     email: "apatil@varadtrack.app",    password: "driver123", role: "driver",    busId: "BUS-1702", assignedRoute: "17", driverId: "DRV-1702" },
+          { name: "S. Deshmukh",  email: "sdeshmukh@varadtrack.app", password: "driver123", role: "driver",    busId: "BUS-0803", assignedRoute: "08", driverId: "DRV-0803" },
+          { name: "K. Reddy",     email: "kreddy@varadtrack.app",    password: "driver123", role: "driver",    busId: "BUS-3301", assignedRoute: "33", driverId: "DRV-3301" },
+          { name: "M. Kumar",     email: "mkumar@varadtrack.app",    password: "driver123", role: "driver",    busId: "BUS-5501", assignedRoute: "55", driverId: "DRV-5501" },
+          { name: "P. Nair",      email: "pnair@varadtrack.app",     password: "driver123", role: "driver",    busId: "BUS-2101", assignedRoute: "21", driverId: "DRV-2101" },
           { name: "Passenger",    email: "passenger@varadtrack.app", password: "pass123",   role: "passenger" },
         ]);
-        console.log("\n🌱 Demo accounts seeded:");
-        console.log("   admin@varadtrack.app     / admin123");
-        console.log("   rsharma@varadtrack.app   / driver123");
-        console.log("   passenger@varadtrack.app / pass123\n");
+
+        // ── Routes (map: from → to with GPS stops) ───────────────────────────
+        for (const r of ROUTES) {
+          const exists = await Route.findOne({ number: r.number });
+          if (!exists) await Route.create(r);
+        }
+
+        // ── Buses ────────────────────────────────────────────────────────────
+        for (const b of BUSES) {
+          const exists = await Bus.findOne({ busNumber: b.busNumber });
+          if (!exists) await Bus.create(b);
+        }
+
+        // ── Schedules ────────────────────────────────────────────────────────
+        for (const s of SCHEDULES) {
+          await Schedule.create(s);
+        }
+
+        console.log("\n🌱 Demo data seeded:");
+        console.log("   Routes  : 6 (Raichur region with GPS stops)");
+        console.log("   Buses   : 6 (BUS-4201 … BUS-2101)");
+        console.log("   Schedules: 8 daily services");
+        console.log("\n   Accounts:");
+        console.log("   admin@varadtrack.app      / admin123");
+        console.log("   rsharma@varadtrack.app    / driver123  (Rt 42 Sindhanur)");
+        console.log("   apatil@varadtrack.app     / driver123  (Rt 17 Mudgal)");
+        console.log("   sdeshmukh@varadtrack.app  / driver123  (Rt 08 Lingsugur)");
+        console.log("   kreddy@varadtrack.app     / driver123  (Rt 33 City Loop)");
+        console.log("   mkumar@varadtrack.app     / driver123  (Rt 55 Hyderabad)");
+        console.log("   pnair@varadtrack.app      / driver123  (Rt 21 Deodurga)");
+        console.log("   passenger@varadtrack.app  / pass123\n");
       }
     } catch (memErr) {
       console.error("❌ Could not start in-memory MongoDB:", memErr.message);
       console.error("Install MongoDB locally or set MONGO_URI to a MongoDB Atlas URI in server/.env");
       process.exit(1);
     }
+  }
+
+  // ── Guarantee admin account always exists (runs on every startup) ──────────
+  try {
+    const User = require('./models/User');
+    const bcrypt = require('bcryptjs');
+    const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@varadtrack.app';
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+    const ADMIN_NAME     = process.env.ADMIN_NAME     || 'Admin User';
+
+    const existing = await User.findOne({ email: ADMIN_EMAIL.toLowerCase() });
+    if (!existing) {
+      // Create fresh (pre-save hook will hash the password)
+      await User.create({ name: ADMIN_NAME, email: ADMIN_EMAIL.toLowerCase(), password: ADMIN_PASSWORD, role: 'admin' });
+      console.log(`🔑 Admin account created: ${ADMIN_EMAIL}`);
+    } else if (existing.role !== 'admin') {
+      // Protect: if somehow email was re-used, force it to admin
+      await User.findByIdAndUpdate(existing._id, { role: 'admin' });
+      console.log(`🔑 Admin role restored for: ${ADMIN_EMAIL}`);
+    } else {
+      console.log(`🔑 Admin account ready: ${ADMIN_EMAIL}`);
+    }
+  } catch (adminErr) {
+    console.warn('⚠️  Could not guarantee admin account:', adminErr.message);
   }
 
   server.listen(PORT, () => {

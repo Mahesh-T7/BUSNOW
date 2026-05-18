@@ -28,17 +28,25 @@ const sendToken = (user, statusCode, res) => {
 };
 
 // ─── POST /api/auth/register ─────────────────────────────────────────────────
+// Public self-registration is PASSENGER-ONLY.
+// ✦ Admin accounts are pre-seeded at server startup (no self-registration).
+// ✦ Driver accounts are created by an admin via POST /api/admin/drivers.
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role, busId, assignedRoute, licenseNumber } = req.body;
+    const { name, email, password } = req.body;
 
-    // Validate required fields
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: "Name, email and password are required" });
     }
 
-    // Only allow passenger registration via this public route. Drivers and Admins must be created internally.
-    const safeRole = "passenger";
+    // Hard-block any attempt to register as admin or driver via this public route
+    const requestedRole = (req.body.role || "").toLowerCase();
+    if (requestedRole === "admin") {
+      return res.status(403).json({ success: false, message: "Admin accounts cannot be created via registration. Contact your system administrator." });
+    }
+    if (requestedRole === "driver") {
+      return res.status(403).json({ success: false, message: "Driver accounts are created by the admin. Please contact your administrator." });
+    }
 
     // Check duplicate
     const existing = await User.findOne({ email: email.toLowerCase() });
@@ -48,12 +56,9 @@ router.post("/register", async (req, res) => {
 
     const user = await User.create({
       name,
-      email,
+      email: email.toLowerCase(),
       password,
-      role: safeRole,
-      busId: busId || null,
-      assignedRoute: assignedRoute || null,
-      licenseNumber: licenseNumber || null,
+      role: "passenger", // always passenger — never trust client-supplied role
     });
 
     sendToken(user, 201, res);
