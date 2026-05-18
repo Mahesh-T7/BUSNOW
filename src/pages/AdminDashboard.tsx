@@ -456,10 +456,11 @@ const BusesView = ({ buses, setBuses }: { buses: BusPlus[], setBuses: React.Disp
     } finally { setLoading(false); }
   };
 
-  const handleRemoveBus = async (id: string, busNumber: string) => {
+  // Use MongoDB _id for delete (dbBuses rows), fall back to busNumber display
+  const handleRemoveBus = async (mongoId: string, busNumber: string) => {
     if (!confirm(`Delete ${busNumber} from the database?`)) return;
     try {
-      await api.deleteAdminBus(id);
+      await api.deleteAdminBus(mongoId);
       toast.success(`Bus ${busNumber} deleted`);
       fetchDbBuses();
     } catch (err: any) {
@@ -472,9 +473,9 @@ const BusesView = ({ buses, setBuses }: { buses: BusPlus[], setBuses: React.Disp
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold flex items-center gap-2"><BusIcon className="h-6 w-6 text-brand" /> Manage Fleet</h2>
-          <p className="text-xs text-muted-foreground mt-1">Add, remove, or monitor your buses.</p>
+          <p className="text-xs text-muted-foreground mt-1">Add, remove, or monitor your buses. Changes save to the database.</p>
         </div>
-        
+
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button className="gradient-brand text-white border-0 shadow-brand">
@@ -488,89 +489,95 @@ const BusesView = ({ buses, setBuses }: { buses: BusPlus[], setBuses: React.Disp
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="id">Bus ID</Label>
-                  <Input id="id" value={formData.id} onChange={(e) => setFormData(p => ({ ...p, id: e.target.value }))} className="bg-white/5 border-white/10" required />
+                  <Label htmlFor="busNumber">Bus Number</Label>
+                  <Input id="busNumber" value={formData.busNumber} onChange={(e) => setFormData(p => ({ ...p, busNumber: e.target.value }))} className="bg-white/5 border-white/10" required />
                 </div>
                 <div className="grid gap-2">
                   <Label>Assign Route</Label>
-                  <Select value={formData.routeId} onValueChange={(val) => setFormData(p => ({ ...p, routeId: val }))}>
+                  <Select
+                    value={formData.routeNumber}
+                    onValueChange={(val) => {
+                      const r = ROUTES_DATA.find(r => r.number === val);
+                      setFormData(p => ({ ...p, routeNumber: val, routeName: r?.name || '', from: r?.from || '', to: r?.to || '' }));
+                    }}
+                  >
                     <SelectTrigger className="bg-white/5 border-white/10">
                       <SelectValue placeholder="Select a route" />
                     </SelectTrigger>
                     <SelectContent>
                       {ROUTES_DATA.map(r => (
-                        <SelectItem key={r.id} value={r.id}>{r.number} - {r.name}</SelectItem>
+                        <SelectItem key={r.number} value={r.number}>{r.number} – {r.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-2">
-                  <Label>Assign Driver</Label>
-                  <Select value={formData.driver} onValueChange={(val) => setFormData(p => ({ ...p, driver: val }))}>
-                    <SelectTrigger className="bg-white/5 border-white/10">
-                      <SelectValue placeholder="Select a driver" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DRIVERS_LIST.map(d => (
-                        <SelectItem key={d.name} value={d.name}>{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label>From</Label>
+                    <Input value={formData.from} onChange={(e) => setFormData(p => ({ ...p, from: e.target.value }))} className="bg-white/5 border-white/10" placeholder="Origin" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>To</Label>
+                    <Input value={formData.to} onChange={(e) => setFormData(p => ({ ...p, to: e.target.value }))} className="bg-white/5 border-white/10" placeholder="Destination" />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="fare">Base Fare (₹)</Label>
-                  <Input id="fare" type="number" value={formData.fare} onChange={(e) => setFormData(p => ({ ...p, fare: e.target.value }))} className="bg-white/5 border-white/10" required />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="fare">Base Fare (₹)</Label>
+                    <Input id="fare" type="number" value={formData.fare} onChange={(e) => setFormData(p => ({ ...p, fare: e.target.value }))} className="bg-white/5 border-white/10" required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="seats">Total Seats</Label>
+                    <Input id="seats" type="number" value={formData.totalSeats} onChange={(e) => setFormData(p => ({ ...p, totalSeats: e.target.value }))} className="bg-white/5 border-white/10" />
+                  </div>
                 </div>
               </div>
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-                <Button type="submit" className="gradient-brand text-white border-0">Save Bus</Button>
+                <Button type="submit" disabled={loading} className="gradient-brand text-white border-0">
+                  {loading ? 'Saving…' : 'Save to DB'}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* DB buses table */}
       <div className="glass-strong rounded-2xl overflow-hidden border border-white/10">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">Showing {dbBuses.length} bus{dbBuses.length !== 1 ? 'es' : ''} from database</p>
+          <button onClick={fetchDbBuses} className="text-xs text-brand hover:underline">↻ Refresh</button>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-white/10">
-                <th className="px-4 py-3 font-medium">Bus ID</th>
+                <th className="px-4 py-3 font-medium">Bus Number</th>
                 <th className="px-4 py-3 font-medium">Route</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Driver</th>
+                <th className="px-4 py-3 font-medium">From → To</th>
+                <th className="px-4 py-3 font-medium">Fare / Seats</th>
                 <th className="px-4 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {buses.map((bus) => (
-                <tr key={bus.id} className="border-b border-white/5 hover:bg-white/[0.03] transition-colors">
-                  <td className="px-4 py-3 font-semibold text-brand">{bus.id}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{bus.route} · {bus.routeName}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium border',
-                      bus.isLive
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                        : 'bg-white/5 text-muted-foreground border-white/10'
-                    )}>
-                      <span className={cn('h-1.5 w-1.5 rounded-full', bus.isLive ? 'bg-emerald-400' : 'bg-muted-foreground')} />
-                      {bus.isLive ? 'Live' : 'Offline'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{bus.driver}</td>
+              {dbBuses.map((bus) => (
+                <tr key={bus._id} className="border-b border-white/5 hover:bg-white/[0.03] transition-colors">
+                  <td className="px-4 py-3 font-semibold text-brand font-mono">{bus.busNumber}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{bus.routeNumber} · {bus.routeName}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{bus.from} → {bus.to}</td>
+                  <td className="px-4 py-3 text-xs">₹{bus.fare} · {bus.totalSeats} seats</td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => handleRemoveBus(bus.id)} className="text-red-400 hover:text-red-300 hover:bg-red-400/10">
+                    <Button variant="ghost" size="sm" onClick={() => handleRemoveBus(bus._id, bus.busNumber)} className="text-red-400 hover:text-red-300 hover:bg-red-400/10">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </td>
                 </tr>
               ))}
-              {buses.length === 0 && (
+              {dbBuses.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    No buses found. Add a new bus to get started.
+                    No buses in database yet. Add one above.
                   </td>
                 </tr>
               )}
@@ -1044,12 +1051,13 @@ const RoutesView = ({ routes, setRoutes }: { routes: any[], setRoutes: any }) =>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {routes.map((r) => (
-          <div key={r.id} className="glass-strong rounded-2xl p-4 border border-white/10 flex flex-col gap-3 group">
+          <div key={r._id || r.id || r.number} className="glass-strong rounded-2xl p-4 border border-white/10 flex flex-col gap-3 group">
             <div className="flex items-center justify-between">
               <span className="px-2 py-1 rounded-md bg-white/5 text-xs font-mono font-bold border border-white/10">{r.number}</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-brand">₹{r.fare} - ₹{r.peakFare}</span>
-                <button onClick={() => handleRemoveRoute(r.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 p-1 rounded hover:bg-white/5">
+                <span className="text-xs font-semibold text-brand">₹{r.fare}{r.peakFare ? ` – ₹${r.peakFare}` : ''}</span>
+                {/* Use MongoDB _id for delete; fall back to r.id for mock data */}
+                <button onClick={() => handleRemoveRoute(r._id || r.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-300 p-1 rounded hover:bg-white/5">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -1057,8 +1065,8 @@ const RoutesView = ({ routes, setRoutes }: { routes: any[], setRoutes: any }) =>
             <h3 className="font-bold text-sm">{r.name}</h3>
             <div className="text-xs text-muted-foreground space-y-1">
               <p className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> {r.from} → {r.to}</p>
-              <p className="flex items-center gap-1.5"><Activity className="h-3 w-3" /> {r.distanceKm} km · {r.durationMin} mins</p>
-              <p className="flex items-center gap-1.5"><Route className="h-3 w-3" /> {r.stops.length} Stops</p>
+              <p className="flex items-center gap-1.5"><Activity className="h-3 w-3" /> {r.distanceKm ?? '?'} km · {r.durationMin ?? '?'} mins</p>
+              <p className="flex items-center gap-1.5"><Route className="h-3 w-3" /> {r.stops?.length ?? 0} Stops</p>
             </div>
           </div>
         ))}
@@ -1124,25 +1132,29 @@ const AdminSchedulesView = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.busNumber || !formData.routeNumber || !formData.departureTime || !formData.arrivalTime) {
+      toast.error('Bus number, route number, departure and arrival times are required'); return;
+    }
     try {
-      await api.createAdminSchedule(formData);
-      toast.success('Schedule created');
+      await api.createAdminSchedule({ ...formData, fare: parseInt(formData.fare) || 20 });
+      toast.success('Schedule saved to database!');
       setOpen(false);
+      setFormData({ busNumber: '', routeNumber: '', routeName: '', departureTime: '', arrivalTime: '', fare: '20', recurring: 'Daily', type: 'Local', timeOfDay: 'Morning' });
       fetchSchedules();
-    } catch (e) {
-      toast.error('Failed to create schedule');
-      setSchedules([{ ...formData, _id: Date.now().toString(), status: 'On Time' }, ...schedules]);
-      setOpen(false);
+    } catch (err: any) {
+      // Show real error — do NOT silently add a local-only record
+      toast.error(err.message || 'Failed to save schedule to database');
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm('Delete this schedule from the database?')) return;
     try {
       await api.deleteAdminSchedule(id);
-      toast.success('Schedule deleted');
+      toast.success('Schedule deleted from database');
       fetchSchedules();
-    } catch (e) {
-      setSchedules(schedules.filter(s => s._id !== id));
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete schedule');
     }
   };
 
