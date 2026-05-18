@@ -33,7 +33,7 @@ const Register = () => {
         console.warn("[Register] Backend offline — using mock auth");
         saveAuth(role, email);
         toast.success("Account created (offline mode)!");
-        nav(role === "admin" ? "/admin" : role === "driver" ? "/driver" : "/user");
+        nav("/user");
       } else {
         toast.error(err.message || "Registration failed");
       }
