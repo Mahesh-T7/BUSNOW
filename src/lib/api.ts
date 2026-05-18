@@ -8,7 +8,9 @@
 
 import { io, Socket } from "socket.io-client";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// In production (Vercel): API lives on the same domain → use '' (same origin)
+// In local dev: point to the separate Node server on port 5000
+const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://localhost:5000");
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 export const getToken = (): string | null => localStorage.getItem("vt_token");
@@ -332,9 +334,15 @@ let _socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!_socket) {
-    _socket = io(BASE_URL, {
+    // On Vercel the socket.io server lives at /api/socket.io (same origin)
+    // On local dev it lives at http://localhost:5000
+    const socketPath = import.meta.env.PROD ? "/api/socket.io" : "/socket.io";
+
+    _socket = io(BASE_URL || window.location.origin, {
       auth: { token: getToken() },
-      transports: ["websocket", "polling"],
+      // polling first for Vercel serverless compatibility; websocket as upgrade
+      transports: ["polling", "websocket"],
+      path: socketPath,
       autoConnect: false,
     });
 
